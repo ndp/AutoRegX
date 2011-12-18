@@ -1,0 +1,418 @@
+<html>
+
+<head>
+
+<script type="text/javascript" src="lib/jquery-1.6.2.js"></script>
+<script type="text/javascript">
+
+var geneticAlgorithm = {
+    initialize: function() {
+        this.maxPopulation = 1000;
+        this.maxChildren = 1000;
+
+        this.candidates = {
+            candidates: [],
+            hash: {},
+            isAlreadyFound: function(solution) {
+                return this.hash[solution];
+            },
+            push: function(candidate, score) {
+                if (!this.hash[candidate]) {
+                    this.hash[candidate] = true;
+                    if (score) {
+                        this.candidates.push([candidate,score]);
+                    }
+                }
+            },
+            top: function(count) {
+                this.sort();
+                return this.candidates.slice(0, count);
+            },
+            limitPopulation: function(count) {
+                this.sort();
+                this.candidates = this.candidates.slice(0, count);
+            },
+            sort: function() {
+                this.candidates.sort(function(a, b) {
+                    return b[1] - a[1];
+                });
+            }
+        };
+    },
+    makeGenerations: function(generations) {
+        var candidates = this.candidates.top(this.maxPopulation);
+        for (var g = 0; g < generations; g++) {
+            for (var i = 0; i < candidates.length; i++) {
+                this.makeGeneration(candidates[i][0]);
+            }
+        }
+        this.candidates.limitPopulation(this.maxPopulation);
+    },
+
+    makeGeneration: function(parent) {
+
+        var children = this.makeChildren(parent, this.maxChildren);
+
+        for (var i = 0; i < children.length; i++) {
+            var child = children[i];
+            if (this.isViable(child) && !this.candidates.isAlreadyFound(child)) {
+                var s = this.scoreCandidate(child);
+                this.candidates.push(child, s);
+                this.callback(child, s);
+            }
+        }
+        return;
+    },
+
+    makeChildren: function(parent, childrenCount) {
+        var children = [];
+        for (var i = 0; i < childrenCount; i++) {
+            children.push(this.mutate(parent));
+        }
+        return children;
+    },
+
+    setCallback: function(callback) {
+        this.callback = callback;
+    },
+
+    signalStop: function(stopCallback) {
+        this.stopSignal = stopCallback || true;
+    }
+
+};
+
+
+var RegExpGen = function(samples, seed) {
+    var rand = function(n) {
+        return Math.floor(Math.random() * n);
+    };
+
+    $.extend(this, geneticAlgorithm, {
+
+        start: function() {
+
+            this.interestingCharacters = this.findInterestingCharacters(samples);
+            this.stopSignal = false;
+
+            this.makeGeneration(seed || '^(.*)$');
+
+            // Spawn is a function that reschedules itself, so that we can "yield" to the OS
+            var that = this;
+            spawn();
+            function spawn() {
+                that.makeGenerations(1);
+                if (that.stopSignal) {
+                    if (typeof that.stopSignal == 'function') {
+                        that.stopSignal.call();
+                    }
+                    that.stopSignal = false;
+                } else {
+                    setTimeout(spawn, 100);
+                }
+            }
+        },
+
+        findInterestingCharacters: function(samples) {
+            var chars = "";
+            for (var s in samples) {
+                if (samples[s]) chars += samples[s] + s;
+            }
+            return chars;
+        },
+
+
+        isViable: function(r) {
+            try {
+                new RegExp(r)
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
+
+        scoreCandidate: function(r) {
+            var m, re, sample, score = -r.length - 3 * r.split('*').length - 2 * r.split('.').length;
+            re = new RegExp(r);
+            for (sample in samples) {
+                m = re.exec(sample);
+                if (samples[sample]) {
+                    if (m) {
+                        score += 2;
+                        if (m[1] == samples[sample]) {
+                            score += 8;
+                        }
+                    }
+                } else {
+                    score += (m) ? -10 : 5;
+                }
+            }
+
+            return score;
+        },
+
+        isSolution: function(r) {
+            var m, re, sample;
+            re = new RegExp(r);
+            var allOk = true;
+            for (sample in samples) {
+                m = re.exec(sample);
+                if (samples[sample]) {
+                    if (!m || m[1] != samples[sample]) {
+                        allOk = false;
+                    }
+                } else {
+                    if (m) allOk = false;
+                }
+            }
+
+            return allOk;
+        },
+
+
+
+        randChr: function() {
+            return this.interestingCharacters[rand(this.interestingCharacters.length)];
+        },
+
+        randOp: function() {
+            var ops = ['.','.+','\\w','\\W','\\s','\\S','*','?','['+this.randChr()+']','[^'+this.randChr()+']'];
+            return ops[rand(ops.length)];
+        },
+
+        mutate: function(t) {
+            // split it apart into parse tree
+            var r = /^\^(.*)\((.*)\)(.*)\$$/.exec(t);
+//            var before = r[1], middle = r[2], after = r[3];
+
+            var piece = rand(3) + 1;
+            var pos = rand(r[piece].length + 1);
+            var zeroOrOne = Math.round(Math.random());
+            if (rand(100) < 50) {
+                r[piece] = r[piece].slice(0, pos) + r[piece].slice(pos + 1 + zeroOrOne, -1);
+            } else {
+                var whatToAdd = zeroOrOne ? this.randChr() : this.randOp();
+                r[piece] = r[piece].slice(0, pos) + whatToAdd + r[piece].slice(pos, -1);
+            }
+
+
+            // compile into string
+            return '^' + r[1] + '(' + r[2] + ')' + r[3] + '$';
+        }
+
+    });
+
+    this.initialize();
+
+    return this;
+};
+
+
+function addMatchInput(sample, result) {
+    var $s = $('<div></div>').insertBefore($('.matches .add'));
+    $('<input name="input">').val(sample || '').appendTo($s);
+    $('<input name="output">').val(result || '').appendTo($s);
+    $('<span class="del">-</span>').appendTo($s);
+}
+
+function addNonMatchInput(sample) {
+    var $s = $('<div></div>').insertBefore($('.non-matches .add'));
+    $('<input name="input">').val(sample || '').appendTo($s);
+    $('<span class="del">-</span>').appendTo($s);
+}
+
+$('.del').live('click', function() {
+    $(this).closest('div').remove();
+});
+
+$('.matches .add').live('click', function() {
+    addMatchInput();
+});
+
+$('.non-matches .add').live('click', function() {
+    addNonMatchInput();
+});
+
+function domFromSamples(samples) {
+    var $matches = $('.matches'), $nonMatches = $('.non-matches'), sample, result, $s;
+    for (sample in samples) {
+        result = samples[sample];
+        if (result) {
+            addMatchInput(sample, result);
+        } else {
+            addNonMatchInput(sample);
+        }
+    }
+}
+
+function samplesFromDom() {
+    var samples = {},
+            $matches = $('.matches'),
+            $nonMatches = $('.non-matches');
+
+    $matches.find('div').each(function() {
+        var val = $(this).find('[name=input]').val();
+        if (val) samples[val] = $(this).find('[name=output]').val();
+    });
+    $nonMatches.find('div').each(function() {
+        var val = $(this).find('[name=input]').val();
+        if (val) samples[val] = null;
+    });
+    return samples;
+}
+
+function startNewSet() {
+    var samples = samplesFromDom(),
+            max = 0, count = 0;
+    var $candidates = $('#candidates').empty();
+    var seed = $('[name=seed]').val();
+
+    var regExpGen = new RegExpGen(samples, seed);
+    regExpGen.setCallback(function(regExp, score) {
+        if (score > max) {
+            console.log('new: ', regExp, '      score=', score, ' count=', count);
+            $candidates.html(regExp + ' (' + score + ') after ' + count + '<br>' + $candidates.html());
+            $('#best-candidate').text(regExp).toggleClass('solution', regExpGen.isSolution(regExp, samples));
+            max = score;
+        }
+        count++;
+    });
+    regExpGen.start();
+    return regExpGen;
+}
+
+
+jQuery(function() {
+
+
+    domFromSamples({
+        andy: 'and',
+        android: 'and',
+        andrew: 'and',
+        andres: 'and',
+        steve: null,
+        anna: null,
+        endy: null,
+        aandy: null
+    });
+
+    var generator;
+    $('#start').click(function() {
+        if ($(this).text() == 'Start' && !generator) {
+            generator = startNewSet();
+            $(this).text('Stop').addClass('started');
+        } else {
+            if (!generator) return false;
+
+            $(this).text('Stopping...');
+            generator.signalStop(function() {
+                $('#start').text('Start').removeClass('started');
+                generator = null;
+            });
+        }
+    });
+});
+
+</script>
+
+<style>
+    body, input {
+        font-family: courier, "courier new", monospace;
+        line-height: 16px;
+    }
+
+    #best-candidate {
+        color: gray;
+        border: 3px solid transparent;
+        padding: 5px;
+    }
+
+    #best-candidate.solution {
+        background-color: green;
+        color: white;
+        border: 3px solid green;
+    }
+
+    table tr td {
+        min-width: 300px;
+        vertical-align: top;
+    }
+
+    #start {
+        margin: 32px;
+        font-size: 16px;
+    }
+
+    #start.started:hover {
+        color: red;
+    }
+
+    .matches, .non-matches {
+        padding-right: 30px;
+    }
+
+    .matches {
+    }
+
+    #candidates {
+        margin-top: 32px;
+    }
+
+    .del, .add {
+        background-color: lightgray;
+        font: bold 12px arial;
+        color: white;
+        padding: 0 4px;
+        margin: 0 3px;
+        cursor: pointer;
+    }
+
+    .del:hover, .add:hover {
+        background-color: gray;
+    }
+</style>
+</head>
+<body>
+<h1>RegExp generator</h1>
+<table>
+    <tr>
+        <td>
+            <h2>Matches</h2>
+
+            <p>Enter text that should match, <br>and result of $1.<br>expect re.match(____)[1] == ___</p>
+
+            <div class="matches">
+                <span class="add">add</span>
+            </div>
+        </td>
+        <td>
+            <h2>Non-Matches</h2>
+
+            <p>Enter text that <br>should not match.<br>expect !re.match(___)</p>
+
+            <div class="non-matches">
+                <span class="add">add</span>
+            </div>
+        </td>
+    </tr>
+</table>
+<h2>Suggested Start</h2>
+
+<p>Give me a hint.</p>
+
+<div class="seed">
+    <input name='seed' value="^(.*)$">
+</div>
+
+<button id="start">Start</button>
+<div>
+    Solution candidates:
+    <span id='best-candidate'>???</span>
+
+    <div id='candidates'></div>
+</div>
+</body>
+</div>
+
+
+</html>

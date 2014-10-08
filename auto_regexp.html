@@ -193,7 +193,7 @@ var RegExpGen = function(samples, seed) {
         },
 
         randOp: function() {
-            var ops = ['.','.+','\\w','\\W','\\s','\\S','*','?','['+this.randChr()+']','[^'+this.randChr()+']'];
+            var ops = ['.','.+','\\w','\\W','\\s','\\S','*','?','[' + this.randChr() + ']','[^' + this.randChr() + ']'];
             return ops[rand(ops.length)];
         },
 

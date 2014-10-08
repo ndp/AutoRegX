@@ -1,8 +1,25 @@
 <html>
 
 <head>
+<style>
+    head { display: block; }
+    head script {
+        background-color: black;
+        z-index: 1000;
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width:  100%;
+        color: white;
+        font-family: monospace;
+        white-space: pre;
+        font-size: 8px;
+        display: block;
+    }
+</style>
 
-<script type="text/javascript" src="lib/jquery-1.6.2.js"></script>
+<script type="text/javascript" src="jquery-1.6.2.min.js"></script>
 <script type="text/javascript">
 
 var geneticAlgorithm = {
@@ -412,7 +429,17 @@ jQuery(function() {
     <div id='candidates'></div>
 </div>
 </body>
-</div>
 
+<script>
+
+    (function(splashMillis) {
+        $(function() {
+           $(window).bind('load',function() {
+               $('head script').animate({'background-color': '#ff0000'}, splashMillis);
+               setTimeout(function() { $('head script').fadeOut(splashMillis); }, splashMillis);
+           });
+        });
+    })(3000)
+</script>
 
 </html>

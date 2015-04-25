@@ -125,7 +125,7 @@ var RegExpGen = function(samples, seed) {
                     }
                     that.stopSignal = false;
                 } else {
-                    setTimeout(spawn, 100);
+                    setTimeout(spawn, 200);
                 }
             }
         },
@@ -197,23 +197,26 @@ var RegExpGen = function(samples, seed) {
             return ops[rand(ops.length)];
         },
 
+        mutatePiece: function(p) {
+          var pos = rand(p.length + 1);
+          var zeroOrOne = Math.round(Math.random());
+          if (rand(100) < 50) {
+              return p.slice(0, pos) + p.slice(pos + 1 + zeroOrOne, -1);
+          } else {
+              var whatToAdd = zeroOrOne ? this.randChr() : this.randOp();
+              return p.slice(0, pos) + whatToAdd + p.slice(pos, -1);
+          }
+        },
+
         mutate: function(t) {
-            // split it apart into parse tree
+            // split it apart into three pieces
             var r = /^\^(.*)\((.*)\)(.*)\$$/.exec(t);
-//            var before = r[1], middle = r[2], after = r[3];
+            // now, before = r[1], capture group = r[2], after = r[3];
 
             var piece = rand(3) + 1;
-            var pos = rand(r[piece].length + 1);
-            var zeroOrOne = Math.round(Math.random());
-            if (rand(100) < 50) {
-                r[piece] = r[piece].slice(0, pos) + r[piece].slice(pos + 1 + zeroOrOne, -1);
-            } else {
-                var whatToAdd = zeroOrOne ? this.randChr() : this.randOp();
-                r[piece] = r[piece].slice(0, pos) + whatToAdd + r[piece].slice(pos, -1);
-            }
+            r[piece] = this.mutatePiece(r[piece])
 
-
-            // compile into string
+            // concat back into string
             return '^' + r[1] + '(' + r[2] + ')' + r[3] + '$';
         }
 
@@ -287,8 +290,8 @@ function startNewSet() {
     var regExpGen = new RegExpGen(samples, seed);
     regExpGen.setCallback(function(regExp, score) {
         if (score > max) {
-            console.log('new: ', regExp, '      score=', score, ' count=', count);
-            $candidates.html(regExp + ' (' + score + ') after ' + count + '<br>' + $candidates.html());
+            //console.log('new: ', regExp, '      score=', score, ' count=', count);
+            $candidates.prepend('/' + regExp  + '/ (score=' + score + ', count=' + count + ')<br>');
             $('#best-candidate').text(regExp).toggleClass('solution', regExpGen.isSolution(regExp, samples));
             max = score;
         }

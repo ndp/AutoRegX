@@ -22,40 +22,38 @@
 <script type="text/javascript" src="jquery-2.1.3.min.js"></script>
 <script type="text/javascript">
 
-var geneticAlgorithm = {
-    initialize: function() {
-        this.maxPopulation = 1000;
-        this.maxChildren = 1000;
-
-        this.candidates = {
-            candidates: [],
-            hash: {},
-            isAlreadyFound: function(solution) {
-                return this.hash[solution];
-            },
-            push: function(candidate, score) {
-                if (!this.hash[candidate]) {
-                    this.hash[candidate] = true;
-                    if (score) {
-                        this.candidates.push([candidate,score]);
-                    }
+function GeneticAlgorithm(mutate, score) {
+    this.maxPopulation = 1000;
+    this.maxChildren = 1000;
+    this.candidates = {
+        candidates: [],
+        hash: {},
+        isAlreadyFound: function(solution) {
+            return this.hash[solution];
+        },
+        push: function(candidate, score) {
+            if (!this.hash[candidate]) {
+                this.hash[candidate] = true;
+                if (score) {
+                    this.candidates.push([candidate,score]);
                 }
-            },
-            top: function(count) {
-                this.sort();
-                return this.candidates.slice(0, count);
-            },
-            limitPopulation: function(count) {
-                this.sort();
-                this.candidates = this.candidates.slice(0, count);
-            },
-            sort: function() {
-                this.candidates.sort(function(a, b) {
-                    return b[1] - a[1];
-                });
             }
-        };
-    },
+        },
+        top: function(count) {
+            this.sort();
+            return this.candidates.slice(0, count);
+        },
+        limitPopulation: function(count) {
+            this.sort();
+            this.candidates = this.candidates.slice(0, count);
+        },
+        sort: function() {
+            this.candidates.sort(function(a, b) {
+                return b[1] - a[1];
+            });
+        }
+    };
+  $.extend(this, {
     makeGenerations: function(generations) {
         var candidates = this.candidates.top(this.maxPopulation);
         for (var g = 0; g < generations; g++) {
@@ -72,8 +70,8 @@ var geneticAlgorithm = {
 
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
-            if (this.isViable(child) && !this.candidates.isAlreadyFound(child)) {
-                var s = this.scoreCandidate(child);
+            var s = score(child);
+            if (s !== NaN && !this.candidates.isAlreadyFound(child)) {
                 this.candidates.push(child, s);
                 this.callback(child, s);
             }
@@ -84,7 +82,7 @@ var geneticAlgorithm = {
     makeChildren: function(parent, childrenCount) {
         var children = [];
         for (var i = 0; i < childrenCount; i++) {
-            children.push(this.mutate(parent));
+            children.push(mutate(parent));
         }
         return children;
     },
@@ -96,7 +94,7 @@ var geneticAlgorithm = {
     signalStop: function(stopCallback) {
         this.stopSignal = stopCallback || true;
     }
-
+  })
 };
 
 
@@ -105,7 +103,7 @@ var RegExpGen = function(samples, seed) {
         return Math.floor(Math.random() * n);
     };
 
-    $.extend(this, geneticAlgorithm, {
+    $.extend(this, {
 
         start: function() {
 
@@ -149,6 +147,7 @@ var RegExpGen = function(samples, seed) {
         },
 
         scoreCandidate: function(r) {
+          if (!isViable(r)) return NaN;
             var m, re, sample, score = -r.length - 3 * r.split('*').length - 2 * r.split('.').length;
             re = new RegExp(r);
             for (sample in samples) {
@@ -222,9 +221,8 @@ var RegExpGen = function(samples, seed) {
 
     });
 
-    this.initialize();
-
-    return this;
+    this.genetic = new GeneticAlgorithm(this.mutate, this.scoreCandidate)
+  return this;
 };
 
 
@@ -442,7 +440,7 @@ jQuery(function() {
                setTimeout(function() { $('head script').fadeOut(splashMillis); }, splashMillis);
            });
         });
-    })(3000)
+    })(300)
 </script>
 
 </html>

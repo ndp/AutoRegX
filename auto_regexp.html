@@ -1,446 +1,495 @@
 <html>
 
 <head>
-<style>
-    head { display: block; }
+  <style>
+    head {
+      display: block;
+    }
+
     head script {
-        background-color: black;
-        z-index: 1000;
-        position: fixed;
-        top: 0;
-        left: 0;
-        height: 100%;
-        width:  100%;
-        color: white;
-        font-family: monospace;
-        white-space: pre;
-        font-size: 8px;
-        display: block;
+      background-color: black;
+      z-index: 1000;
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 100%;
+      color: white;
+      font-family: monospace;
+      white-space: pre;
+      font-size: 8px;
+      display: block;
     }
-</style>
+  </style>
 
-<script type="text/javascript" src="jquery-2.1.3.min.js"></script>
-<script type="text/javascript">
+  <script type="text/javascript" src="jquery-2.1.3.min.js"></script>
+  <script type="text/javascript">
 
-function GeneticAlgorithm(mutate, score) {
-    this.maxPopulation = 1000;
-    this.maxChildren = 1000;
-    this.candidates = {
-        candidates: [],
-        hash: {},
-        isAlreadyFound: function(solution) {
-            return this.hash[solution];
-        },
-        push: function(candidate, score) {
-            if (!this.hash[candidate]) {
-                this.hash[candidate] = true;
-                if (score) {
-                    this.candidates.push([candidate,score]);
-                }
-            }
-        },
-        top: function(count) {
-            this.sort();
-            return this.candidates.slice(0, count);
-        },
-        limitPopulation: function(count) {
-            this.sort();
-            this.candidates = this.candidates.slice(0, count);
-        },
-        sort: function() {
-            this.candidates.sort(function(a, b) {
-                return b[1] - a[1];
-            });
+    class GeneticAlgorithmRunner {
+
+      currentPopulation = null
+      generation        = 0
+
+      constructor (populationGenerator, reportFn) {
+        this.populationGenerator = populationGenerator
+        this.reportFn            = reportFn
+        this.running             = false
+      }
+
+      start () {
+        this.running = true
+        window.requestAnimationFrame(() => {
+          this.nextGeneration()
+          if (this.running) this.start()
+        })
+      }
+
+      stop () {
+        this.running = false
+      }
+
+      nextGeneration (restart = false) {
+        if (restart) this.generation = 0
+        this.generation++
+
+        if (this.currentPopulation == null || restart) {
+          this.currentPopulation = this.populationGenerator.first()
+        } else {
+          const culledPopulation = this.populationGenerator.cull(this.currentPopulation)
+          this.currentPopulation = this.populationGenerator.childrenOf(culledPopulation)
         }
-    };
-  $.extend(this, {
-    makeGenerations: function(generations) {
-        var candidates = this.candidates.top(this.maxPopulation);
-        for (var g = 0; g < generations; g++) {
-            for (var i = 0; i < candidates.length; i++) {
-                this.makeGeneration(candidates[i][0]);
-            }
-        }
-        this.candidates.limitPopulation(this.maxPopulation);
-    },
 
-    makeGeneration: function(parent) {
+        this.report()
+      }
 
-        var children = this.makeChildren(parent, this.maxChildren);
-
-        for (var i = 0; i < children.length; i++) {
-            var child = children[i];
-            var s = score(child);
-            if (s !== NaN && !this.candidates.isAlreadyFound(child)) {
-                this.candidates.push(child, s);
-                this.callback(child, s);
-            }
-        }
-        return;
-    },
-
-    makeChildren: function(parent, childrenCount) {
-        var children = [];
-        for (var i = 0; i < childrenCount; i++) {
-            children.push(mutate(parent));
-        }
-        return children;
-    },
-
-    setCallback: function(callback) {
-        this.callback = callback;
-    },
-
-    signalStop: function(stopCallback) {
-        this.stopSignal = stopCallback || true;
+      report () {
+        if (this.reportFn) this.reportFn(this.generation, this.currentPopulation)
+      }
     }
-  })
-};
 
+    class PopulationGenerator {
+      constructor (nature, populationSize, survivalRate) {
+        this.nature         = nature
+        this.populationSize = populationSize
+        this.survivalRate   = survivalRate
+      }
 
-var RegExpGen = function(samples, seed) {
-    var rand = function(n) {
-        return Math.floor(Math.random() * n);
-    };
+      // Generate the first generation
+      first () {
+        const being = this.nature.seed(),
+              score = this.nature.score(being)
 
-    $.extend(this, {
+        return [...Array(this.populationSize)].map(() => ({ being, score }))
+      }
 
-        start: function() {
+      childrenOf (parents) {
+        return [
+          ...parents, ...this.sample(this.populationSize - parents.length, parents)
+                             .map(parent => {
+                               const being = this.nature.mutate(parent.being),
+                                     score = this.nature.score(being)
 
-            this.interestingCharacters = this.findInterestingCharacters(samples);
-            this.stopSignal = false;
+                               return { being, score }
+                             }),
+        ].sort((a, b) => b.score - a.score)
+        // If compareFunction(a, b) is less than 0, sort a to an index lower than b, i.e. a comes first.
+      }
 
-            this.makeGeneration(seed || '^(.*)$');
+      cull (parents) {
+        // Remove duplicates
+        let lastBeing        = null
+        const culled         = parents.filter(p => {
+                const isUnique = p.being !== lastBeing
+                lastBeing      = p.being
+                return isUnique
+              }),
+            survivorPoolsize = Math.round(this.populationSize * this.survivalRate)
 
-            // Spawn is a function that reschedules itself, so that we can "yield" to the OS
-            var that = this;
-            spawn();
-            function spawn() {
-                that.makeGenerations(1);
-                if (that.stopSignal) {
-                    if (typeof that.stopSignal == 'function') {
-                        that.stopSignal.call();
-                    }
-                    that.stopSignal = false;
-                } else {
-                    setTimeout(spawn, 200);
-                }
+        return culled
+          .slice(0, survivorPoolsize)
+      }
+
+      sample (n, a) {
+        return [...Array(n)].map(() => this.oneOf(a))
+      }
+
+      oneOf (a) {
+        return a[Math.floor(Math.random() * a.length)]
+      }
+    }
+
+    class Nature {
+      seed () {
+
+      }
+
+      mutate (being) {
+
+      }
+
+      score (being) {
+
+      }
+    }
+
+    class RegExpGen extends Nature {
+
+      constructor (samples, seedRegExp) {
+        super()
+        this.seedRegExp            = seedRegExp || '^(.*)$'
+        this.samples               = samples
+        this.interestingCharacters = this.findInterestingCharacters(samples)
+      }
+
+      seed () {
+        return this.seedRegExp
+      }
+
+      mutate (t) {
+        // split it apart into three pieces
+        var r = /^\^(.*)\((.*)\)(.*)\$$/.exec(t)
+        // before capture group = r[1], capture group = r[2], after = r[3];
+
+        let mutation
+        do {
+          var piece = this.rand(3) + 1
+          r[piece]  = this.mutatePiece(r[piece])
+
+          // concat back into string
+          mutation = '^' + r[1] + '(' + r[2] + ')' + r[3] + '$'
+        } while (!this.isViable(mutation))
+
+        return mutation
+      }
+
+      score (r) {
+        if (!this.isViable(r)) return -1000
+
+        let score = 0
+        score -= Math.log10(r.length) // 6 chars are just the framework
+        score -= 3 * r.split('*').length
+        score -= 2 * r.split('.').length
+        score -= 1 * r.split('\S').length
+
+        const re = new RegExp(r)
+        Object.keys(this.samples).forEach(sample => {
+          let m           = re.exec(sample)
+          let shouldMatch = this.samples[sample]
+          if (shouldMatch) {
+            if (m) {
+              score += 2 // matches?
+              if (m[1] == shouldMatch) {
+                score += 8 // returns the right matched string
+              }
             }
-        },
-
-        findInterestingCharacters: function(samples) {
-            var chars = "";
-            for (var s in samples) {
-                if (samples[s]) chars += samples[s] + s;
-            }
-            return chars;
-        },
-
-
-        isViable: function(r) {
-            try {
-                new RegExp(r)
-                return true;
-            } catch (e) {
-                return false;
-            }
-        },
-
-        scoreCandidate: function(r) {
-          if (!isViable(r)) return NaN;
-            var m, re, sample, score = -r.length - 3 * r.split('*').length - 2 * r.split('.').length;
-            re = new RegExp(r);
-            for (sample in samples) {
-                m = re.exec(sample);
-                if (samples[sample]) {
-                    if (m) {
-                        score += 2;
-                        if (m[1] == samples[sample]) {
-                            score += 8;
-                        }
-                    }
-                } else {
-                    score += (m) ? -10 : 5;
-                }
-            }
-
-            return score;
-        },
-
-        isSolution: function(r) {
-            var m, re, sample;
-            re = new RegExp(r);
-            var allOk = true;
-            for (sample in samples) {
-                m = re.exec(sample);
-                if (samples[sample]) {
-                    if (!m || m[1] != samples[sample]) {
-                        allOk = false;
-                    }
-                } else {
-                    if (m) allOk = false;
-                }
-            }
-
-            return allOk;
-        },
-
-
-
-        randChr: function() {
-            return this.interestingCharacters[rand(this.interestingCharacters.length)];
-        },
-
-        randOp: function() {
-            var ops = ['.','.+','\\w','\\W','\\s','\\S','*','?','[' + this.randChr() + ']','[^' + this.randChr() + ']'];
-            return ops[rand(ops.length)];
-        },
-
-        mutatePiece: function(p) {
-          var pos = rand(p.length + 1);
-          var zeroOrOne = Math.round(Math.random());
-          if (rand(100) < 50) {
-              return p.slice(0, pos) + p.slice(pos + 1 + zeroOrOne, -1);
           } else {
-              var whatToAdd = zeroOrOne ? this.randChr() : this.randOp();
-              return p.slice(0, pos) + whatToAdd + p.slice(pos, -1);
+            score += m ? -10 : 5
           }
-        },
+        })
 
-        mutate: function(t) {
-            // split it apart into three pieces
-            var r = /^\^(.*)\((.*)\)(.*)\$$/.exec(t);
-            // now, before = r[1], capture group = r[2], after = r[3];
+        return score
 
-            var piece = rand(3) + 1;
-            r[piece] = this.mutatePiece(r[piece])
+      }
 
-            // concat back into string
-            return '^' + r[1] + '(' + r[2] + ')' + r[3] + '$';
-        }
+      rand (n) {
+        return Math.floor(Math.random() * n)
+      }
 
-    });
+      randChr () {
+        return this.interestingCharacters[this.rand(this.interestingCharacters.length)]
+      }
 
-    this.genetic = new GeneticAlgorithm(this.mutate, this.scoreCandidate)
-  return this;
-};
+      randOp () {
+        var ops = ['.', '.+', '\\w', '\\W', '\\s', '\\S', '*', '?', '[' + this.randChr() + ']', '[^' + this.randChr() + ']']
+        return ops[this.rand(ops.length)]
+      }
 
+      mutatePiece (p) {
+        var pos       = this.rand(p.length + 1)
 
-function addMatchInput(sample, result) {
-    var $s = $('<div></div>').insertBefore($('.matches .add'));
-    $('<input name="input">').val(sample || '').appendTo($s);
-    $('<input name="output">').val(result || '').appendTo($s);
-    $('<span class="del">-</span>').appendTo($s);
-}
-
-function addNonMatchInput(sample) {
-    var $s = $('<div></div>').insertBefore($('.non-matches .add'));
-    $('<input name="input">').val(sample || '').appendTo($s);
-    $('<span class="del">-</span>').appendTo($s);
-}
-
-$(document).on('click', '.del', function() {
-    $(this).closest('div').remove();
-});
-
-$(document).on('click', '.matches .add', function() {
-    addMatchInput();
-});
-
-$(document).on('click', '.non-matches .add', function() {
-    addNonMatchInput();
-});
-
-function domFromSamples(samples) {
-    var $matches = $('.matches'), $nonMatches = $('.non-matches'), sample, result, $s;
-    for (sample in samples) {
-        result = samples[sample];
-        if (result) {
-            addMatchInput(sample, result);
+        // Remove something or add something?
+        if (Math.random() < 0.4) {
+          return p.slice(0, pos) + p.slice(pos + 1 + this.rand(3), -1)
         } else {
-            addNonMatchInput(sample);
+          var whatToAdd = Math.random() < 0.5 ? this.randChr() : this.randOp()
+          return p.slice(0, pos) + whatToAdd + p.slice(pos, -1)
         }
+      }
+
+
+      // We'll need some characters to use to generate regular expressions
+      // The ones that are in our matching groups will help.
+      findInterestingCharacters (samples) {
+        let chars = ''
+        for (let s in samples) {
+          if (samples[s]) chars += samples[s] + s
+        }
+        return chars
+      }
+
+      isViable (r) {
+        try {
+          new RegExp(r)
+          return true
+        } catch (e) {
+          return false
+        }
+      }
+
+      isSolution (r) {
+        var m,
+            re,
+            sample
+        re        = new RegExp(r)
+        var allOk = true
+        for (sample in this.samples) {
+          m = re.exec(sample)
+          if (this.samples[sample]) {
+            if (!m || m[1] != this.samples[sample]) {
+              allOk = false
+            }
+          } else {
+            if (m) allOk = false
+          }
+        }
+
+        return allOk
+      }
     }
-}
 
-function samplesFromDom() {
-    var samples = {},
-            $matches = $('.matches'),
-            $nonMatches = $('.non-matches');
+    function addMatchInput (sample, result) {
+      var $s = $('<div></div>').insertBefore($('.matches .add'))
+      $('<input name="input">').val(sample || '').appendTo($s)
+      $('<input name="output">').val(result || '').appendTo($s)
+      $('<span class="del">-</span>').appendTo($s)
+    }
 
-    $matches.find('div').each(function() {
-        var val = $(this).find('[name=input]').val();
-        if (val) samples[val] = $(this).find('[name=output]').val();
-    });
-    $nonMatches.find('div').each(function() {
-        var val = $(this).find('[name=input]').val();
-        if (val) samples[val] = null;
-    });
-    return samples;
-}
+    function addNonMatchInput (sample) {
+      var $s = $('<div></div>').insertBefore($('.non-matches .add'))
+      $('<input name="input">').val(sample || '').appendTo($s)
+      $('<span class="del">-</span>').appendTo($s)
+    }
 
-function startNewSet() {
-    var samples = samplesFromDom(),
-            max = 0, count = 0;
-    var $candidates = $('#candidates').empty();
-    var seed = $('[name=seed]').val();
+    $(document).on('click', '.del', function () {
+      $(this).closest('div').remove()
+    })
 
-    var regExpGen = new RegExpGen(samples, seed);
-    regExpGen.setCallback(function(regExp, score) {
-        if (score > max) {
-            //console.log('new: ', regExp, '      score=', score, ' count=', count);
-            $candidates.prepend('/' + regExp  + '/ (score=' + score + ', count=' + count + ')<br>');
-            $('#best-candidate').text(regExp).toggleClass('solution', regExpGen.isSolution(regExp, samples));
-            max = score;
-        }
-        count++;
-    });
-    regExpGen.start();
-    return regExpGen;
-}
+    $(document).on('click', '.matches .add', function () {
+      addMatchInput()
+    })
 
+    $(document).on('click', '.non-matches .add', function () {
+      addNonMatchInput()
+    })
 
-jQuery(function() {
+    function domFromSamples (samples) {
+      var sample,
+          result
 
-
-    domFromSamples({
-        andy: 'and',
-        android: 'and',
-        andrew: 'and',
-        andres: 'and',
-        steve: null,
-        anna: null,
-        endy: null,
-        aandy: null
-    });
-
-    var generator;
-    $('#start').click(function() {
-        if ($(this).text() == 'Start' && !generator) {
-            generator = startNewSet();
-            $(this).text('Stop').addClass('started');
+      for (sample in samples) {
+        result = samples[sample]
+        if (result) {
+          addMatchInput(sample, result)
         } else {
-            if (!generator) return false;
-
-            $(this).text('Stopping...');
-            generator.signalStop(function() {
-                $('#start').text('Start').removeClass('started');
-                generator = null;
-            });
+          addNonMatchInput(sample)
         }
-    });
-});
+      }
+    }
 
-</script>
+    function samplesFromDom () {
+      var samples     = {},
+          $matches    = $('.matches'),
+          $nonMatches = $('.non-matches')
 
-<style>
+      $matches.find('div').each(function () {
+        var val = $(this).find('[name=input]').val()
+        if (val) samples[val] = $(this).find('[name=output]').val()
+      })
+      $nonMatches.find('div').each(function () {
+        var val = $(this).find('[name=input]').val()
+        if (val) samples[val] = null
+      })
+      return samples
+    }
+
+    function startNewSet (control) {
+      var samples     = samplesFromDom(),
+          max         = 0,
+          count       = 0
+      var $candidates = $('#candidates').empty()
+      var seed        = $('[name=seed]').val()
+
+
+      const nature              = new RegExpGen(samples, seed),
+            maxPopulation       = 1000,
+            survivalRate        = 0.2,
+            populationGenerator = new PopulationGenerator(nature, maxPopulation, survivalRate),
+            runner              = new GeneticAlgorithmRunner(populationGenerator, report)
+
+      let lastRegExp = null
+
+      function report (generation, population) {
+
+        const regExp = population[0].being
+        //console.log(generation, population.slice(0, 10))
+        $('#best-candidate').text(regExp).toggleClass('solution', nature.isSolution(regExp, samples))
+        max = 1
+        if (regExp != lastRegExp)
+          $candidates.prepend('/' + regExp + '/ (score=' + population[0].score + ', generation=' + generation + ')<br>')
+
+        lastRegExp = regExp
+      }
+
+      runner.start()
+      return runner
+    }
+
+
+    jQuery(function () {
+
+
+      domFromSamples({
+                       andy:    'and',
+                       android: 'and',
+                       andrew:  'and',
+                       andres:  'and',
+                       steve:   null,
+                       anna:    null,
+                       endy:    null,
+                       aandy:   null,
+                     })
+
+      let runner
+      $('#start').click(function () {
+        if (!runner) {
+          runner = startNewSet()
+          $(this).text('Stop').addClass('started')
+        } else {
+          if ($(this).text() == 'Start') {
+            $(this).text('Stop').addClass('started')
+            runner.start()
+          } else {
+            $(this).text('Stopping...')
+            runner.stop()
+            $('#start').text('Start').removeClass('started')
+          }
+
+        }
+      })
+    })
+
+  </script>
+
+  <style>
     body, input {
-        font-family: courier, "courier new", monospace;
-        line-height: 16px;
+      font-family: courier, "courier new", monospace;
+      line-height: 16px;
     }
 
     #best-candidate {
-        color: gray;
-        border: 3px solid transparent;
-        padding: 5px;
+      color: gray;
+      border: 3px solid transparent;
+      padding: 5px;
     }
 
     #best-candidate.solution {
-        background-color: green;
-        color: white;
-        border: 3px solid green;
+      background-color: green;
+      color: white;
+      border: 3px solid green;
     }
 
     table tr td {
-        min-width: 300px;
-        vertical-align: top;
+      min-width: 300px;
+      vertical-align: top;
     }
 
     #start {
-        margin: 32px;
-        font-size: 16px;
+      margin: 32px;
+      font-size: 16px;
     }
 
     #start.started:hover {
-        color: red;
+      color: red;
     }
 
     .matches, .non-matches {
-        padding-right: 30px;
+      padding-right: 30px;
     }
 
     .matches {
     }
 
     #candidates {
-        margin-top: 32px;
+      margin-top: 32px;
     }
 
     .del, .add {
-        background-color: lightgray;
-        font: bold 12px arial;
-        color: white;
-        padding: 0 4px;
-        margin: 0 3px;
-        cursor: pointer;
+      background-color: lightgray;
+      font: bold 12px arial;
+      color: white;
+      padding: 0 4px;
+      margin: 0 3px;
+      cursor: pointer;
     }
 
     .del:hover, .add:hover {
-        background-color: gray;
+      background-color: gray;
     }
-</style>
+  </style>
 </head>
 <body>
 <h1>RegExp generator</h1>
 <table>
-    <tr>
-        <td>
-            <h2>Matches</h2>
+  <tr>
+    <td>
+      <h2>Matches</h2>
 
-            <p>Enter text that should match, <br>and result of $1.<br>expect re.match(____)[1] == ___</p>
+      <p>Enter text that should match, <br>and result of $1.<br>expect re.match(____)[1] == ___</p>
 
-            <div class="matches">
-                <span class="add">add</span>
-            </div>
-        </td>
-        <td>
-            <h2>Non-Matches</h2>
+      <div class="matches">
+        <span class="add">add</span>
+      </div>
+    </td>
+    <td>
+      <h2>Non-Matches</h2>
 
-            <p>Enter text that <br>should not match.<br>expect !re.match(___)</p>
+      <p>Enter text that <br>should not match.<br>expect !re.match(___)</p>
 
-            <div class="non-matches">
-                <span class="add">add</span>
-            </div>
-        </td>
-    </tr>
+      <div class="non-matches">
+        <span class="add">add</span>
+      </div>
+    </td>
+  </tr>
 </table>
 <h2>Suggested Start</h2>
 
 <p>Give me a hint.</p>
 
 <div class="seed">
-    <input name='seed' value="^(.*)$">
+  <input name='seed' value="^(.*)$">
 </div>
 
 <button id="start">Start</button>
 <div>
-    Solution candidates:
-    <span id='best-candidate'>???</span>
+  Solution candidates:
+  <span id='best-candidate'>???</span>
 
-    <div id='candidates'></div>
+  <div id='candidates'></div>
 </div>
 </body>
 
 <script>
 
-    (function(splashMillis) {
-        $(function() {
-           $(window).bind('load',function() {
-               $('head script').animate({'background-color': '#ff0000'}, splashMillis);
-               setTimeout(function() { $('head script').fadeOut(splashMillis); }, splashMillis);
-           });
-        });
-    })(300)
+  (function (splashMillis) {
+    $(function () {
+      $(window).bind('load', function () {
+        $('head script').animate({ 'background-color': '#ff0000' }, splashMillis)
+        setTimeout(function () {
+          $('head script').fadeOut(splashMillis)
+        }, splashMillis)
+      })
+    })
+  })(300)
 </script>
 
 </html>
